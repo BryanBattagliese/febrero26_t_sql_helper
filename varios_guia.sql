@@ -1,7 +1,7 @@
 use [gd2015c1] 
 go
 
-/* FUNCI�N: producto compuesto: no compuesto por si mismo (recursiva) */
+/* FUNCIóN: producto compuesto: no compuesto por si mismo (recursiva) */
 
 create function no_compuesto_recursiva (@producto char(8), @componente char(8))
 returns int
@@ -34,7 +34,7 @@ begin
 end
 go
 
-/* FUNCI�N: salario jefe: no mayor al 20% de la suma de sus empleados */
+/* FUNCIóN: salario jefe: no mayor al 20% de la suma de sus empleados */
 
 create function salario_emp (@jefe numeric(6))
 returns decimal(12,2)
@@ -151,9 +151,9 @@ go
 
 Corregir la tabla empleado en caso de que sea necesario:
 - Debe existir un unico gerente general (1 solo empleado sin jefe)
-- Si detecta que hay m�s, debera elegir el de mayor salario
+- Si detecta que hay más, debera elegir el de mayor salario
 - Si hay mas de uno, se seleccionara el de mayor antiguedad
-- Retornar la cantidad de empleados que habia sin jefe, antes de la ejecuci�n */
+- Retornar la cantidad de empleados que habia sin jefe, antes de la ejecución */
 
 alter procedure ejercicio_3 @cantidad int output
 as
@@ -190,8 +190,8 @@ go
 --	 EJERCICIO 10: T-SQL   --
 -- -- -- -- -- -- -- -- -- --
 
-Crear el/los objetos de base de datos que ante el intento de borrar un art�culo
-verifique que no exista stock y si es as� lo borre en caso contrario que emita un
+Crear el/los objetos de base de datos que ante el intento de borrar un artículo
+verifique que no exista stock y si es así lo borre en caso contrario que emita un
 mensaje de error. */
 
 create trigger ejercicio_10_after on producto after delete
@@ -228,10 +228,10 @@ go
 --	 EJERCICIO 11: T-SQL   --
 -- -- -- -- -- -- -- -- -- --
 
-Cree el/los objetos de base de datos necesarios para que dado un c�digo de
+Cree el/los objetos de base de datos necesarios para que dado un código de
 empleado se retorne la cantidad de empleados que este tiene a su cargo (directa o
 indirectamente). Solo contar aquellos empleados (directos o indirectos) que
-tengan un c�digo mayor que su jefe directo. */
+tengan un código mayor que su jefe directo. */
 
 create function ejer_11 (@codigo int)
 returns int
@@ -281,7 +281,7 @@ go
 cree el o los objetos de bases de datos necesarios que lo resueva, teniendo en
 cuenta que un deposito no puede tener como encargado un empleado que
 pertenezca a un departamento que no sea de la misma zona que el deposito, si
-esto ocurre a dicho deposito debera asign�rsele el empleado con menos
+esto ocurre a dicho deposito debera asignársele el empleado con menos
 depositos asignados que pertenezca a un departamento de esa zona. */
 
 create procedure ej24 
@@ -320,8 +320,8 @@ go
 
 /* Ejercicio 23 guia */
 /* Desarrolle el/los elementos de base de datos necesarios para que ante una venta
-automaticamante se controle que en una misma factura no puedan venderse m�s
-de dos productos con composici�n. Si esto ocurre debera rechazarse la factura. */
+automaticamante se controle que en una misma factura no puedan venderse más
+de dos productos con composición. Si esto ocurre debera rechazarse la factura. */
 
 create trigger ej23 on Item_Factura for insert
 as
@@ -343,4 +343,87 @@ begin
 
 end
 go
+
+"Cree el/los objetos... para que el objeto principal reciba un producto como parámetro y retorne el precio del mismo. 
+Se debe prever que el precio de los productos compuestos será la sumatoria de los componentes del mismo multiplicado por sus respectivas cantidades.
+No se conocen los niveles de anidamiento posibles... El objeto principal debe poder ser utilizado como filtro en el where de una sentencia select."
+
+CREATE FUNCTION fn_PrecioRealProducto (@producto char(8))
+RETURNS decimal(12,2)
+AS
+BEGIN
+    DECLARE @precio_total decimal(12,2) = 0;
+    DECLARE @componente char(8);
+    DECLARE @cantidad decimal(12,2);
+
+    -- CASO BASE: ¿Es un producto simple? (No está como 'padre' en Composicion)
+    IF NOT EXISTS(SELECT 1 FROM Composicion WHERE comp_producto = @producto)
+    BEGIN
+        SELECT @precio_total = prod_precio 
+        FROM Producto 
+        WHERE prod_codigo = @producto;
+    END
+    ELSE
+    BEGIN
+        -- CASO RECURSIVO: Es compuesto, iteramos por sus ingredientes
+        DECLARE cur_receta CURSOR LOCAL FOR
+            SELECT comp_componente, comp_cantidad 
+            FROM Composicion 
+            WHERE comp_producto = @producto;
+
+        OPEN cur_receta;
+        FETCH NEXT FROM cur_receta INTO @componente, @cantidad;
+
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            -- MAGIA RECURSIVA: Averiguamos el precio del componente (sea simple o compuesto) y lo multiplicamos por la cantidad que lleva la receta
+            SET @precio_total = @precio_total + (dbo.fn_PrecioRealProducto(@componente) * @cantidad);
+
+            FETCH NEXT FROM cur_receta INTO @componente, @cantidad;
+        END
+
+        CLOSE cur_receta;
+        DEALLOCATE cur_receta;
+    END
+
+    RETURN ISNULL(@precio_total, 0);
+END
+GO
+
+"Desarrolle el o los objetos... para que un jefe no pueda tener más de 20 empleados a cargo, directa o indirectamente. Si esto ocurre deberá asignársele 
+un jefe que cumpla esa condición, si no existe un jefe para asignarle se le deberá colocar como jefe al gerente general que es aquel que no tiene jefe."
+
+CREATE TRIGGER trg_Control_Jerarquia ON Empleado INSTEAD OF INSERT, UPDATE
+AS
+BEGIN
+    -- Declaras variables para el cursor
+    DECLARE @empl_codigo numeric(6), @empl_jefe numeric(6);
+    -- ... (Otras variables para el insert)
+
+    DECLARE cur_empleados CURSOR LOCAL FOR 
+        SELECT empl_codigo, empl_jefe FROM inserted;
+    
+    OPEN cur_empleados;
+    FETCH NEXT FROM cur_empleados INTO @empl_codigo, @empl_jefe;
+
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        -- Usamos la función recursiva para ver cuántos empleados YA tiene este jefe + 1 (el que está entrando)
+        IF (dbo.fn_ContarSubordinadosTotales(@empl_jefe) + 1) > 20
+        BEGIN
+            -- Lógica para buscar a otro jefe que tenga menos de 20, 
+            -- o si no, buscar al Gerente General (empl_jefe IS NULL) y asignarlo.
+            -- Luego haces el INSERT/UPDATE con el nuevo jefe válido.
+        END
+        ELSE
+        BEGIN
+            -- Entra normal
+            -- INSERT INTO Empleado (...) VALUES (...);
+        END
+
+        FETCH NEXT FROM cur_empleados INTO @empl_codigo, @empl_jefe;
+    END
+    CLOSE cur_empleados; DEALLOCATE cur_empleados;
+END
+GO
 
